@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub Release Notices Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="header-left">
+        <svg class="header-icon" viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        <h1 id="appTitle">GitHub Release Notices Manager</h1>
+      </div>
+      <div class="header-actions">
+        <button id="refreshBtn" class="btn">&#x21bb; Refresh</button>
+        <button id="settingsToggle" class="btn">&#x2699; Settings</button>
+      </div>
+    </header>
+
+    <div id="settingsPanel" class="settings-panel hidden">
+      <div class="settings-inner">
+        <label for="tokenInput" id="tokenLabel">GitHub Personal Access Token</label>
+        <div class="token-row">
+          <input type="password" id="tokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+          <button id="saveTokenBtn" class="btn btn-primary">Save</button>
+        </div>
+        <p class="hint">
+          <span id="tokenHint">Requires a GitHub Token with notifications scope.</span>
+          <a href="https://github.com/settings/tokens/new?scopes=notifications&description=GitHub+Release+Notices+Manager" target="_blank" id="tokenLink">Create one here</a>
+        </p>
+        <hr class="settings-divider" />
+        <label id="cacheLabel">Cache</label>
+        <p class="hint" id="cacheHint">Release details (tag, prerelease flag) are cached locally and never expire.</p>
+        <button id="clearCacheBtn" class="btn">Clear Cache</button>
+
+        <hr class="settings-divider" />
+        <label class="checkbox-label setting-checkbox">
+          <input type="checkbox" id="autoMarkReadCb" class="custom-checkbox" />
+          <span class="checkbox-ui"></span>
+          <span id="autoMarkReadLabel">Auto-mark as read on click</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <div id="statusBar" class="status-bar">
+        <div class="status-left">
+          <span id="statusText">Ready</span>
+          <span id="countBadge" class="count-badge hidden"></span>
+        </div>
+      </div>
+
+      <div id="toolbar" class="toolbar hidden">
+        <label class="checkbox-label select-all-label">
+          <input type="checkbox" id="selectAllCb" class="custom-checkbox" />
+          <span class="checkbox-ui"></span>
+          <span id="selectAllLabel">Select All</span>
+        </label>
+        <button id="selectPreBtn" class="btn btn-sm">Select Pre-release</button>
+        <span id="selectedCount" class="selected-count">0 selected</span>
+        <div class="toolbar-actions">
+          <button id="filterMultiBtn" class="btn btn-sm">Multi-repo</button>
+          <button id="expandAllBtn" class="btn btn-sm">Expand All</button>
+          <button id="fetchDetailsBtn" class="btn btn-sm" disabled>Fetch Details</button>
+          <button id="markHiddenBtn" class="btn btn-sm" disabled>Mark Collapsed as Read</button>
+          <button id="markReadBtn" class="btn btn-sm" disabled>Mark as Read</button>
+        </div>
+      </div>
+
+      <div id="loadingIndicator" class="loading hidden">
+        <div class="spinner"></div>
+        <span id="loadingText">Fetching...</span>
+      </div>
+
+      <div id="errorMessage" class="error hidden"></div>
+
+      <div id="notificationsContainer">
+        <div id="emptyState" class="empty-state hidden">
+          <div class="empty-icon">&#x1F4EC;</div>
+          <p id="emptyText">No notifications</p>
+        </div>
+        <div id="groupedList"></div>
+      </div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
