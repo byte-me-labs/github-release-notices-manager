@@ -19,7 +19,7 @@ A Chrome extension that aggregates all your GitHub Release notifications, groups
 - **Pre-release detection** — Fetches release details to identify pre-release / latest release, with visual badges
 - **Filter modes** — Three filter options: all repos / multi-notif repos / repos with pre-releases
 - **Batch mark as read** — Mark individual, per-repo, or selected notifications as read
-- **Load read messages** — Optional: load recent 300 notifications including already-read ones
+- **Load read messages** — Optional: show a Load More button to fetch 50 notifications at a time including already-read ones
 - **Auto-fetch details** — Optional: automatically fetch release details on load (enabled by default)
 - **Auto mark on click** — Optional: clicking a notification automatically marks it as read (enabled by default)
 - **i18n** — Supports English and Chinese, auto-detects browser language
@@ -123,7 +123,7 @@ github-notices-manager/
 - **预发布识别** — 获取 Release 详情识别是否为预发布（Pre-release）和最新版（Latest），带颜色徽标
 - **筛选模式** — 三种筛选：全部仓库 / 含多条通知 / 含预发布
 - **批量标记已读** — 支持逐条、按仓库、按选中标记为已读
-- **加载已读消息** — 可选：加载最近 300 条通知（含已读）
+- **加载已读消息** — 可选：显示"加载更多"按钮，每次拉取 50 条通知（含已读）
 - **自动拉取详情** — 可选：页面加载时自动拉取 Release 详情（默认开启）
 - **点击自动标记** — 可选：点击通知时自动标记为已读（默认开启）
 - **国际化** — 支持英文和中文，自动匹配浏览器语言
