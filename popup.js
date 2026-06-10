@@ -6,6 +6,15 @@ let freshLatestRepos = new Set();   // repos with latest fetched this session
 let groups = new Map();             // repo -> notification[]
 let token = '';
 const BASE_URL = 'https://api.github.com';
+const BATCH_SIZE = 10;
+
+function getHeaders() {
+  return {
+    'Authorization': `token ${token}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': 'GitHub-Notices-Manager-Chrome-Ext'
+  };
+}
 
 // ===== Cache TTL =====
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -29,16 +38,26 @@ const tokenInput = $('tokenInput');
 const settingsPanel = $('settingsPanel');
 const toolbar = $('toolbar');
 const selectAllCb = $('selectAllCb');
+const selectDropdownBtn = $('selectDropdownBtn');
+const selectDropdownMenu = $('selectDropdownMenu');
+const selectDropdownText = $('selectDropdownText');
 const selectedCount = $('selectedCount');
 const markReadBtn = $('markReadBtn');
 const fetchDetailsBtn = $('fetchDetailsBtn');
 const expandAllBtn = $('expandAllBtn');
-const markHiddenBtn = $('markHiddenBtn');
+
 const autoMarkReadCb = $('autoMarkReadCb');
-const filterMultiBtn = $('filterMultiBtn');
-const selectPreBtn = $('selectPreBtn');
+const filterDropdownBtn = $('filterDropdownBtn');
+const filterDropdownMenu = $('filterDropdownMenu');
+const filterDropdownText = $('filterDropdownText');
+const autoFetchDetailsCb = $('autoFetchDetailsCb');
+const loadReadNotifsCb = $('loadReadNotifsCb');
+const loadMoreBtn = $('loadMoreBtn');
 let autoMarkRead = false;
-let filterMultiOnly = false;
+let loadReadNotifs = false;
+let loadMorePage = 1;           // current page for "load more"
+let autoFetchDetails = false;
+let filterMode = 'all'; // 'all' | 'multi' | 'pre_release'
 
 // ===== i18n helper =====
 const t = (key, ...subs) => chrome.i18n.getMessage(key, subs) || key;
@@ -52,7 +71,7 @@ function escapeHtml(str) {
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', async () => {
-  const result = await chrome.storage.local.get(['github_token', 'auto_mark_read']);
+  const result = await chrome.storage.local.get(['github_token', 'auto_mark_read', 'auto_fetch_details', 'load_read_notifs']);
   if (result.github_token) {
     token = result.github_token;
     tokenInput.value = token;
@@ -66,6 +85,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   autoMarkRead = result.auto_mark_read !== false;
   autoMarkReadCb.checked = autoMarkRead;
+
+  // Default to true
+  if (result.auto_fetch_details === undefined) {
+    await chrome.storage.local.set({ auto_fetch_details: true });
+  }
+  autoFetchDetails = result.auto_fetch_details !== false;
+  autoFetchDetailsCb.checked = autoFetchDetails;
+  fetchDetailsBtn.classList.toggle('hidden', autoFetchDetails);
+
+  loadReadNotifs = result.load_read_notifs === true;
+  loadReadNotifsCb.checked = loadReadNotifs;
+  loadMoreBtn.classList.toggle('hidden', !loadReadNotifs);
 
   // Initialize all i18n text
   applyI18nText();
@@ -91,18 +122,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('saveTokenBtn').addEventListener('click', onSaveToken);
   $('clearCacheBtn').addEventListener('click', onClearCache);
   $('refreshBtn').addEventListener('click', () => {
+    loadMorePage = 1;
     if (token) fetchAllNotifications();
   });
 
   // Selection controls
   selectAllCb.addEventListener('change', onSelectAllChange);
+  selectDropdownBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSelectDropdown(); });
+  selectDropdownMenu.addEventListener('click', onSelectOptionClick);
+  document.addEventListener('click', closeSelectDropdown);
   expandAllBtn.addEventListener('click', onExpandAll);
-  filterMultiBtn.addEventListener('click', onFilterMulti);
-  selectPreBtn.addEventListener('click', onSelectPre);
+  filterDropdownBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleFilterDropdown(); });
+  filterDropdownMenu.addEventListener('click', onFilterOptionClick);
+  document.addEventListener('click', closeFilterDropdown);
+
   fetchDetailsBtn.addEventListener('click', fetchAllReleaseDetails);
 
   // Mark as read
-  markHiddenBtn.addEventListener('click', onMarkHiddenRead);
   markReadBtn.addEventListener('click', onMarkRead);
 
   // Auto mark as read
@@ -110,6 +146,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     autoMarkRead = autoMarkReadCb.checked;
     await chrome.storage.local.set({ auto_mark_read: autoMarkRead });
   });
+
+  // Auto fetch details
+  autoFetchDetailsCb.addEventListener('change', async () => {
+    autoFetchDetails = autoFetchDetailsCb.checked;
+    await chrome.storage.local.set({ auto_fetch_details: autoFetchDetails });
+    fetchDetailsBtn.classList.toggle('hidden', autoFetchDetails);
+  });
+
+  // Load read notifications
+  loadReadNotifsCb.addEventListener('change', async () => {
+    loadReadNotifs = loadReadNotifsCb.checked;
+    await chrome.storage.local.set({ load_read_notifs: loadReadNotifs });
+    loadMoreBtn.classList.toggle('hidden', !loadReadNotifs);
+    if (!loadReadNotifs) {
+      loadMorePage = 1;
+      if (token) fetchAllNotifications();
+    }
+  });
+
+  // Load more button
+  loadMoreBtn.addEventListener('click', onLoadMore);
 });
 
 // ===== Settings panel toggle with outside-click close =====
@@ -149,16 +206,20 @@ function applyI18nText() {
   $('cacheLabel').textContent = t('cacheLabel');
   $('cacheHint').textContent = t('cacheHint');
   $('clearCacheBtn').textContent = t('clearCache');
+  $('notifSettingsLabel').textContent = t('notifSettings');
   $('autoMarkReadLabel').textContent = t('autoMarkRead');
-  $('selectAllLabel').textContent = t('selectAll');
+  $('autoFetchDetailsLabel').textContent = t('autoFetchDetails');
+  $('loadReadNotifsLabel').textContent = t('loadReadNotifs');
+  loadMoreBtn.textContent = t('loadMore');
+  selectDropdownText.textContent = t('selectAction');
+  updateSelectDropdownUI();
   expandAllBtn.textContent = t('expandAll');
-  markHiddenBtn.textContent = t('markHiddenRead');
   $('fetchDetailsBtn').textContent = t('fetchDetails');
   markReadBtn.textContent = t('markRead');
   $('loadingText').textContent = t('fetching');
   $('emptyText').textContent = t('noNotifs');
-  filterMultiBtn.textContent = t('filterMulti');
-  selectPreBtn.textContent = t('selectPre');
+  // Update dropdown to reflect current filterMode
+  updateFilterDropdownUI();
 }
 
 // ===== Settings handlers =====
@@ -185,6 +246,63 @@ async function onClearCache() {
   updateStatus(t('cacheCleared'));
 }
 
+// ===== Load more (with read items) =====
+async function onLoadMore() {
+  loadMoreBtn.disabled = true;
+  loadMoreBtn.textContent = t('fetching');
+
+  try {
+    const url = `${BASE_URL}/notifications?per_page=50&all=true&page=${loadMorePage}&_=${Date.now()}`;
+    const resp = await fetch(url, { headers: getHeaders() });
+
+    if (!resp.ok) {
+      if (resp.status === 401) throw new Error(t('tokenInvalid'));
+      throw new Error(t('requestFailed', String(resp.status), resp.statusText));
+    }
+
+    const items = await resp.json();
+    if (items.length === 0) {
+      loadMoreBtn.textContent = t('loadMore');
+      loadMoreBtn.disabled = true;
+      updateStatus(t('noNotifs'));
+      return;
+    }
+
+    // Detect last page before filtering (raw item count)
+    const isLastPage = items.length < 50;
+
+    // Filter to Release only
+    const releaseOnly = items.filter(n => n.subject.type === 'Release');
+
+    // Deduplicate against existing notifications
+    const existingIds = new Set(allNotifications.map(n => String(n.id)));
+    const newItems = releaseOnly.filter(n => !existingIds.has(String(n.id)));
+
+    if (newItems.length > 0) {
+      allNotifications.push(...newItems);
+      buildGroupMap();
+      if (autoFetchDetails) {
+        const uncached = newItems.filter(n => !releaseUrlCache.has(n.subject.url));
+        if (uncached.length > 0) {
+          await autoFetchAllReleaseDetails(uncached);
+        }
+      }
+      renderGrouped();
+      updateToolbarState();
+    }
+
+    loadMorePage++;
+    countBadge.textContent = allNotifications.length;
+    updateStatus(t('totalNotifs', String(allNotifications.length)));
+    loadMoreBtn.textContent = t('loadMore');
+    loadMoreBtn.disabled = isLastPage;
+  } catch (err) {
+    showError(err.message);
+    loadMoreBtn.textContent = t('loadMore');
+    loadMoreBtn.disabled = false;
+  }
+}
+
 // ===== Fetch all notifications with pagination =====
 async function fetchAllNotifications() {
   showLoading(true);
@@ -194,19 +312,14 @@ async function fetchAllNotifications() {
   groupedList.innerHTML = '';
   allNotifications = [];
   selectedSet.clear();
+  loadMorePage = 1;
 
   try {
     let url = `${BASE_URL}/notifications?per_page=50&_=${Date.now()}`;
     const allItems = [];
 
     while (url) {
-      const resp = await fetch(url, {
-        headers: {
-          'Authorization': `token ${token}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'GitHub-Notices-Manager-Chrome-Ext'
-        }
-      });
+      const resp = await fetch(url, { headers: getHeaders() });
 
       if (resp.status === 401) {
         throw new Error(t('tokenInvalid'));
@@ -257,6 +370,14 @@ async function fetchAllNotifications() {
       await persistLatestReleaseCache();
     }
 
+    // Auto-fetch release details if enabled and there are uncached notifications
+    if (autoFetchDetails) {
+      const uncached = allNotifications.filter(n => !releaseUrlCache.has(n.subject.url));
+      if (uncached.length > 0) {
+        await autoFetchAllReleaseDetails(uncached);
+      }
+    }
+
     updateStatus(t('totalNotifs', String(allNotifications.length)));
     countBadge.textContent = allNotifications.length;
     countBadge.classList.remove('hidden');
@@ -266,7 +387,6 @@ async function fetchAllNotifications() {
     } else {
       buildGroupMap();
       renderGrouped();
-      updateMarkHiddenBtn();
       toolbar.classList.remove('hidden');
       updateToolbarState();
     }
@@ -343,12 +463,7 @@ async function persistCache(key, cacheMap) {
 }
 
 async function fetchReleaseHtmlUrl(subjectUrl) {
-  const headers = {
-    'Authorization': `token ${token}`,
-    'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': 'GitHub-Notices-Manager-Chrome-Ext'
-  };
-  const resp = await fetch(subjectUrl, { headers });
+  const resp = await fetch(subjectUrl, { headers: getHeaders() });
   if (!resp.ok) throw new Error(t('detailsFailed', String(resp.status)));
   const data = await resp.json();
   return {
@@ -359,6 +474,48 @@ async function fetchReleaseHtmlUrl(subjectUrl) {
   };
 }
 
+// ===== Shared batch helpers =====
+async function batchFetchReleaseDetails(notifications) {
+  for (let i = 0; i < notifications.length; i += BATCH_SIZE) {
+    const batch = notifications.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(n => fetchReleaseHtmlUrl(n.subject.url))
+    );
+    results.forEach((result, idx) => {
+      if (result.status === 'fulfilled') {
+        releaseUrlCache.set(batch[idx].subject.url, result.value);
+      }
+    });
+    updateStatus(t('loadReleaseDetails', String(Math.min(i + BATCH_SIZE, notifications.length)), String(notifications.length)));
+  }
+  await persistReleaseUrlCache();
+}
+
+async function batchFetchLatestReleases(repos) {
+  const uncached = repos.filter(r => !latestReleaseCache.has(r));
+  if (uncached.length === 0) return;
+  const results = await Promise.allSettled(
+    uncached.map(repo =>
+      fetch(`${BASE_URL}/repos/${repo}/releases/latest`, { headers: getHeaders() })
+        .then(r => r.ok ? r.json() : null)
+    )
+  );
+  results.forEach((result, idx) => {
+    if (result.status === 'fulfilled' && result.value) {
+      latestReleaseCache.set(uncached[idx], result.value.tag_name);
+      freshLatestRepos.add(uncached[idx]);
+    }
+  });
+  await persistLatestReleaseCache();
+}
+
+// ===== Auto-fetch all uncached release details (for filtering) =====
+async function autoFetchAllReleaseDetails(notifications) {
+  await batchFetchReleaseDetails(notifications);
+  const uniqueRepos = [...new Set(notifications.map(n => n.repository.full_name))];
+  await batchFetchLatestReleases(uniqueRepos);
+}
+
 // ===== Batch fetch details for selected releases =====
 async function fetchAllReleaseDetails() {
   if (selectedSet.size === 0) return;
@@ -366,57 +523,22 @@ async function fetchAllReleaseDetails() {
   const btn = $('fetchDetailsBtn');
   btn.disabled = true;
 
-  const selected = allNotifications.filter(n => selectedSet.has(Number(n.id)));
-
-  // 1. Fetch release detail for uncached selected notifications
+  const selected = allNotifications.filter(n => selectedSet.has(String(n.id)));
   const uncached = selected.filter(n => !releaseUrlCache.has(n.subject.url));
 
   if (uncached.length > 0) {
-    const batchSize = 10;
-    for (let i = 0; i < uncached.length; i += batchSize) {
-      const batch = uncached.slice(i, i + batchSize);
-      const results = await Promise.allSettled(
-        batch.map(n => fetchReleaseHtmlUrl(n.subject.url))
-      );
-      results.forEach((result, idx) => {
-        if (result.status === 'fulfilled') {
-          releaseUrlCache.set(batch[idx].subject.url, result.value);
-        }
-      });
-      updateStatus(t('loadReleaseDetails', String(Math.min(i + batchSize, uncached.length)), String(uncached.length)));
-    }
-    await persistReleaseUrlCache();
+    await batchFetchReleaseDetails(uncached);
   }
 
-  // 2. Fetch latest release for each unique repo (uncached)
   const uniqueRepos = [...new Set(selected.map(n => n.repository.full_name))];
   const uncachedRepos = uniqueRepos.filter(r => !latestReleaseCache.has(r));
-
   if (uncachedRepos.length > 0) {
-    const headers = {
-      'Authorization': `token ${token}`,
-      'User-Agent': 'GitHub-Notices-Manager-Chrome-Ext'
-    };
     updateStatus(t('fetchingLatest', String(uncachedRepos.length)));
-    const results = await Promise.allSettled(
-      uncachedRepos.map(repo =>
-        fetch(`${BASE_URL}/repos/${repo}/releases/latest`, { headers })
-          .then(r => r.ok ? r.json() : null)
-      )
-    );
-    results.forEach((result, idx) => {
-      if (result.status === 'fulfilled' && result.value) {
-        const repo = uncachedRepos[idx];
-        latestReleaseCache.set(repo, result.value.tag_name);
-        freshLatestRepos.add(repo);
-      }
-    });
-    await persistLatestReleaseCache();
+    await batchFetchLatestReleases(uniqueRepos);
   }
 
   btn.disabled = false;
   renderGrouped();
-  updateMarkHiddenBtn();
   updateStatus(t('detailsFetched'));
 }
 
@@ -438,15 +560,19 @@ function renderGrouped() {
     return latestB - latestA;
   });
 
-  // Filter: only show repos with multiple notifications
-  if (filterMultiOnly) {
+  // Filter by mode
+  if (filterMode === 'multi') {
     entries = entries.filter(([, items]) => items.length > 1);
+  } else if (filterMode === 'pre_release') {
+    entries = entries.filter(([, items]) =>
+      items.some(n => {
+        const cached = releaseUrlCache.get(n.subject.url);
+        return cached && cached.prerelease;
+      })
+    );
   }
 
   groupedList.innerHTML = '';
-
-  let totalChecked = 0;
-  const totalItems = allNotifications.length;
 
   for (const [repoFull, items] of entries) {
     const [owner, repo] = repoFull.split('/');
@@ -468,7 +594,9 @@ function renderGrouped() {
     if (canCollapse && !isManuallyExpanded) {
       const latestItem = items.find(n => getNotifInfo(n).isLatest);
       const nonLatest = items.filter(n => n !== latestItem);
-      const prereleases = nonLatest.filter(n => getNotifInfo(n).isPrerelease);
+      const prereleases = nonLatest
+        .filter(n => getNotifInfo(n).isPrerelease)
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 
       const visible = [];
       if (latestItem) {
@@ -492,8 +620,7 @@ function renderGrouped() {
 
     // Check if all items in this group are selected
     const allGroupItems = groups.get(repoFull) || [];
-    const groupAllChecked = allGroupItems.length > 0 && allGroupItems.every(n => selectedSet.has(Number(n.id)));
-    totalChecked += allGroupItems.filter(n => selectedSet.has(Number(n.id))).length;
+    const groupAllChecked = allGroupItems.length > 0 && allGroupItems.every(n => selectedSet.has(String(n.id)));
 
     const renderGroupItems = (list) => list.map(n => renderNotifItem(n, groupId)).join('');
 
@@ -529,7 +656,15 @@ function renderGrouped() {
     groupedList.appendChild(groupEl);
   }
 
-  selectAllCb.checked = totalChecked > 0 && totalChecked === totalItems;
+  // Checkbox state: is every displayed notification selected?
+  const displayedIds = new Set();
+  for (const groupEl of groupedList.querySelectorAll('.group')) {
+    const repo = groupEl.dataset.repo;
+    for (const n of (groups.get(repo) || [])) {
+      displayedIds.add(String(n.id));
+    }
+  }
+  selectAllCb.checked = displayedIds.size > 0 && [...displayedIds].every(id => selectedSet.has(id));
 }
 
 // ===== Render a single notification item =====
@@ -552,7 +687,7 @@ function renderNotifItem(notif, groupId) {
   const isLatest = latestTag && cached && cached.tag_name === latestTag;
   const isLatestFresh = isLatest && freshLatestRepos.has(repo);
 
-  const isChecked = selectedSet.has(Number(notif.id));
+  const isChecked = selectedSet.has(String(notif.id));
 
   let badges = '';
   if (isLatest) {
@@ -562,8 +697,11 @@ function renderNotifItem(notif, groupId) {
   if (isPrerelease) badges += `<span class="prerelease-badge">${t('preRelease')}</span>`;
   if (tagName) badges += `<span class="notif-tag">${tagName}</span>`;
 
+  const isRead = notif.unread === false;
+  const readClass = isRead ? ' notif-read' : '';
+
   return `
-    <div class="notif-item" data-thread-id="${notif.id}">
+    <div class="notif-item${readClass}" data-thread-id="${notif.id}">
       <label class="checkbox-label notif-cb">
         <input type="checkbox" data-notif-cb="${groupId}" class="custom-checkbox" ${isChecked ? 'checked' : ''} />
         <span class="checkbox-ui"></span>
@@ -580,20 +718,135 @@ function renderNotifItem(notif, groupId) {
   `;
 }
 
-// ===== Selection logic =====
+// ===== Shared: collect repos currently displayed =====
+function getDisplayedRepos() {
+  const repos = new Set();
+  for (const groupEl of groupedList.querySelectorAll('.group')) {
+    repos.add(groupEl.dataset.repo);
+  }
+  return repos;
+}
+
+// ===== Select all checkbox =====
 function onSelectAllChange() {
   const checked = selectAllCb.checked;
-  const allCbs = groupedList.querySelectorAll('input[data-notif-cb]');
-  const groupCbs = groupedList.querySelectorAll('input[data-group-cb]');
+  const displayedRepos = getDisplayedRepos();
 
-  allCbs.forEach(cb => { cb.checked = checked; });
-  groupCbs.forEach(cb => { cb.checked = checked; });
-
-  selectedSet = checked
-    ? new Set(allNotifications.map(n => Number(n.id)))
-    : new Set();
-
+  for (const n of allNotifications) {
+    if (displayedRepos.has(n.repository.full_name)) {
+      if (checked) {
+        selectedSet.add(String(n.id));
+      } else {
+        selectedSet.delete(String(n.id));
+      }
+    }
+  }
+  syncCheckboxesFromSelection();
   updateToolbarState();
+}
+
+// ===== Select dropdown =====
+function toggleSelectDropdown() {
+  closeDropdown();
+  const dropdown = selectDropdownBtn.parentElement;
+  const isOpen = dropdown.classList.toggle('open');
+  selectDropdownMenu.classList.toggle('hidden', !isOpen);
+}
+
+function onSelectOptionClick(e) {
+  const option = e.target.closest('.select-option');
+  if (!option) return;
+  const action = option.dataset.action;
+  closeSelectDropdownMenu();
+
+  if (action === 'all') {
+    selectAllVisible();
+  } else if (action === 'pre_release') {
+    selectPreRelease();
+  } else if (action === 'collapsed') {
+    selectCollapsed();
+  }
+}
+
+function closeSelectDropdownMenu() {
+  const dropdown = selectDropdownBtn.parentElement;
+  dropdown.classList.remove('open');
+  selectDropdownMenu.classList.add('hidden');
+}
+
+function closeSelectDropdown(e) {
+  const dropdown = selectDropdownBtn.parentElement;
+  if (!dropdown.classList.contains('open')) return;
+  if (!dropdown.contains(e.target)) {
+    closeSelectDropdownMenu();
+  }
+}
+
+function updateSelectDropdownUI() {
+  const optionLabels = {
+    'all': t('selectAll'),
+    'pre_release': t('selectPreRelease'),
+    'collapsed': t('selectCollapsed')
+  };
+  const options = selectDropdownMenu.querySelectorAll('.select-option');
+  options.forEach(opt => {
+    opt.textContent = optionLabels[opt.dataset.action] || opt.dataset.action;
+  });
+}
+
+function selectAllVisible() {
+  const displayedRepos = getDisplayedRepos();
+  selectedSet = new Set();
+  for (const n of allNotifications) {
+    if (displayedRepos.has(n.repository.full_name)) {
+      selectedSet.add(String(n.id));
+    }
+  }
+  syncCheckboxesFromSelection();
+  updateToolbarState();
+}
+
+function selectPreRelease() {
+  const displayedRepos = getDisplayedRepos();
+  selectedSet = new Set();
+  for (const n of allNotifications) {
+    if (!displayedRepos.has(n.repository.full_name)) continue;
+    const cached = releaseUrlCache.get(n.subject.url);
+    if (cached && cached.prerelease) {
+      selectedSet.add(String(n.id));
+    }
+  }
+  syncCheckboxesFromSelection();
+  updateToolbarState();
+}
+
+function selectCollapsed() {
+  // Select items in collapsed (hidden) sections of displayed groups
+  const hiddenItems = groupedList.querySelectorAll('.group-hidden-items.hidden .notif-item');
+  selectedSet = new Set();
+  for (const el of hiddenItems) {
+    selectedSet.add(el.dataset.threadId);
+  }
+  syncCheckboxesFromSelection();
+  updateToolbarState();
+}
+
+// Sync DOM checkboxes to match selectedSet
+function syncCheckboxesFromSelection() {
+  const allCheckboxes = groupedList.querySelectorAll('input[data-notif-cb]');
+  for (const cb of allCheckboxes) {
+    const item = cb.closest('.notif-item');
+    const id = item.dataset.threadId;
+    cb.checked = selectedSet.has(id);
+  }
+  // Update group checkboxes
+  for (const groupEl of groupedList.querySelectorAll('.group')) {
+    const groupCb = groupEl.querySelector('input[data-group-cb]');
+    const groupItems = groupEl.querySelectorAll('input[data-notif-cb]');
+    if (groupCb) {
+      groupCb.checked = groupItems.length > 0 && [...groupItems].every(c => c.checked);
+    }
+  }
 }
 
 function onSelectionChange(e) {
@@ -602,7 +855,7 @@ function onSelectionChange(e) {
   // Individual notification checkbox
   if (cb.dataset.notifCb !== undefined) {
     const item = cb.closest('.notif-item');
-    const id = Number(item.dataset.threadId);
+    const id = item.dataset.threadId;
     if (cb.checked) {
       selectedSet.add(id);
     } else {
@@ -627,14 +880,13 @@ function onSelectionChange(e) {
     const notifs = groups.get(repo) || [];
     for (const n of notifs) {
       if (cb.checked) {
-        selectedSet.add(Number(n.id));
+        selectedSet.add(String(n.id));
       } else {
-        selectedSet.delete(Number(n.id));
+        selectedSet.delete(String(n.id));
       }
     }
   }
 
-  // Update select-all
   const allCbs = groupedList.querySelectorAll('input[data-notif-cb]');
   const allChecked = [...allCbs].every(c => c.checked);
   selectAllCb.checked = allChecked;
@@ -656,7 +908,7 @@ async function onNotifLinkClick(e) {
   if (!link) return;
 
   const item = link.closest('.notif-item');
-  const threadId = item ? Number(item.dataset.threadId) : null;
+  const threadId = item ? item.dataset.threadId : null;
   const cached = releaseUrlCache.get(link.dataset.subjectUrl);
 
   // Cache hit → mark as read first, then open
@@ -717,7 +969,6 @@ function onGroupExpand(e) {
       expandedGroups.delete(repo);
     }
   }
-  updateMarkHiddenBtn();
 }
 
 function onExpandAll() {
@@ -749,80 +1000,59 @@ function onExpandAll() {
       expandedGroups.delete(repo);
     }
   }
-  updateMarkHiddenBtn();
 }
 
-// ===== Select all pre-release notifications =====
-function onSelectPre() {
-  selectedSet = new Set();
-  for (const n of allNotifications) {
-    const cached = releaseUrlCache.get(n.subject.url);
-    if (cached && cached.prerelease) {
-      selectedSet.add(Number(n.id));
-    }
-  }
+// ===== Filter dropdown =====
+function toggleFilterDropdown() {
+  closeSelectDropdownMenu();
+  const dropdown = filterDropdownBtn.parentElement;
+  const isOpen = dropdown.classList.toggle('open');
+  filterDropdownMenu.classList.toggle('hidden', !isOpen);
+}
 
-  // Update all checkboxes in the DOM
-  const allCheckboxes = groupedList.querySelectorAll('input[data-notif-cb]');
-  for (const cb of allCheckboxes) {
-    const item = cb.closest('.notif-item');
-    const id = Number(item.dataset.threadId);
-    cb.checked = selectedSet.has(id);
+function onFilterOptionClick(e) {
+  const option = e.target.closest('.filter-option');
+  if (!option) return;
+  const mode = option.dataset.mode;
+  if (mode === filterMode) {
+    closeDropdown();
+    return;
   }
-
-  // Update group checkboxes
-  for (const groupEl of groupedList.querySelectorAll('.group')) {
-    const groupCb = groupEl.querySelector('input[data-group-cb]');
-    const groupItems = groupEl.querySelectorAll('input[data-notif-cb]');
-    groupCb.checked = [...groupItems].every(c => c.checked);
-  }
-
-  selectAllCb.checked = selectedSet.size === allNotifications.length;
+  filterMode = mode;
+  selectedSet.clear();
+  updateFilterDropdownUI();
+  closeDropdown();
+  renderGrouped();
   updateToolbarState();
 }
 
-// ===== Filter multi-repo toggle =====
-function onFilterMulti() {
-  filterMultiOnly = !filterMultiOnly;
-  filterMultiBtn.textContent = filterMultiOnly ? t('filterMultiOn') : t('filterMulti');
-  filterMultiBtn.classList.toggle('btn-active', filterMultiOnly);
-  renderGrouped();
-  updateMarkHiddenBtn();
+function closeDropdown() {
+  const dropdown = filterDropdownBtn.parentElement;
+  dropdown.classList.remove('open');
+  filterDropdownMenu.classList.add('hidden');
 }
 
-// ===== Mark hidden items as read =====
-function updateMarkHiddenBtn() {
-  const hiddenSections = groupedList.querySelectorAll('.group-hidden-items.hidden');
-  markHiddenBtn.disabled = hiddenSections.length === 0;
-  markHiddenBtn.textContent = t('markHiddenRead');
+function closeFilterDropdown(e) {
+  const dropdown = filterDropdownBtn.parentElement;
+  if (!dropdown.classList.contains('open')) return;
+  if (!dropdown.contains(e.target)) {
+    closeDropdown();
+  }
 }
 
-async function onMarkHiddenRead() {
-  markHiddenBtn.disabled = true;
-  markHiddenBtn.textContent = t('marking');
+function updateFilterDropdownUI() {
+  const modeLabels = {
+    'all': t('filterAll'),
+    'multi': t('filterMulti'),
+    'pre_release': t('filterPreRelease')
+  };
+  filterDropdownText.textContent = modeLabels[filterMode] || t('filterAll');
 
-  const hiddenItems = groupedList.querySelectorAll('.group-hidden-items.hidden .notif-item');
-  const threadIds = [...hiddenItems].map(el => Number(el.dataset.threadId));
-  if (threadIds.length === 0) {
-    markHiddenBtn.textContent = t('markHiddenRead');
-    return;
-  }
-
-  try {
-    let marked = 0;
-    const total = threadIds.length;
-    for (const id of threadIds) {
-      await markThreadRead(id);
-      marked++;
-      updateStatus(t('markingHidden', String(marked), String(total)));
-    }
-    await fetchAllNotifications();
-    updateStatus(t('markedHidden', String(marked)));
-  } catch (err) {
-    showError(t('markFailed', err.message));
-    markHiddenBtn.disabled = false;
-    markHiddenBtn.textContent = t('markHiddenRead');
-  }
+  const options = filterDropdownMenu.querySelectorAll('.filter-option');
+  options.forEach(opt => {
+    opt.textContent = modeLabels[opt.dataset.mode] || opt.dataset.mode;
+    opt.classList.toggle('active', opt.dataset.mode === filterMode);
+  });
 }
 
 // ===== Group mark-as-read =====
@@ -860,15 +1090,9 @@ async function onMarkRead() {
   markReadBtn.textContent = t('marking');
 
   try {
-    if (selectedSet.size === allNotifications.length) {
-      await markAllRead();
-      updateStatus(t('markedAllRead'));
-      return;
-    }
-
     const selectedByRepo = new Map();
     for (const n of allNotifications) {
-      if (selectedSet.has(Number(n.id))) {
+      if (selectedSet.has(String(n.id))) {
         const repo = n.repository.full_name;
         if (!selectedByRepo.has(repo)) selectedByRepo.set(repo, []);
         selectedByRepo.get(repo).push(n);
@@ -896,29 +1120,10 @@ async function onMarkRead() {
   }
 }
 
-async function markAllRead() {
-  const resp = await fetch(`${BASE_URL}/notifications`, {
-    method: 'PUT',
-    headers: {
-      'Authorization': `token ${token}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'GitHub-Notices-Manager-Chrome-Ext'
-    }
-  });
-  if (!resp.ok && resp.status !== 205) {
-    throw new Error(t('markFailed', `all: ${resp.status}`));
-  }
-  await sleep(2000);
-  await fetchAllNotifications();
-}
-
 async function markThreadRead(threadId) {
   const resp = await fetch(`${BASE_URL}/notifications/threads/${threadId}`, {
     method: 'PATCH',
-    headers: {
-      'Authorization': `token ${token}`,
-      'User-Agent': 'GitHub-Notices-Manager-Chrome-Ext'
-    }
+    headers: getHeaders()
   });
   if (!resp.ok && resp.status !== 205) {
     throw new Error(t('markFailed', `thread ${threadId}: ${resp.status}`));

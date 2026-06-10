@@ -38,10 +38,23 @@
         <button id="clearCacheBtn" class="btn">Clear Cache</button>
 
         <hr class="settings-divider" />
+        <label id="notifSettingsLabel">Notification Settings</label>
+        <label class="checkbox-label setting-checkbox">
+          <input type="checkbox" id="autoFetchDetailsCb" class="custom-checkbox" />
+          <span class="checkbox-ui"></span>
+          <span id="autoFetchDetailsLabel">Auto-fetch release details</span>
+        </label>
+
         <label class="checkbox-label setting-checkbox">
           <input type="checkbox" id="autoMarkReadCb" class="custom-checkbox" />
           <span class="checkbox-ui"></span>
           <span id="autoMarkReadLabel">Auto-mark as read on click</span>
+        </label>
+
+        <label class="checkbox-label setting-checkbox">
+          <input type="checkbox" id="loadReadNotifsCb" class="custom-checkbox" />
+          <span class="checkbox-ui"></span>
+          <span id="loadReadNotifsLabel">Load read messages</span>
         </label>
       </div>
     </div>
@@ -58,15 +71,34 @@
         <label class="checkbox-label select-all-label">
           <input type="checkbox" id="selectAllCb" class="custom-checkbox" />
           <span class="checkbox-ui"></span>
-          <span id="selectAllLabel">Select All</span>
         </label>
-        <button id="selectPreBtn" class="btn btn-sm">Select Pre-release</button>
+        <div class="select-dropdown">
+          <button id="selectDropdownBtn" class="btn btn-sm select-dropdown-btn">
+            <span id="selectDropdownText">Select</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <ul id="selectDropdownMenu" class="select-dropdown-menu hidden">
+            <li data-action="all" class="select-option">Select All</li>
+            <li data-action="pre_release" class="select-option">Select Pre-release</li>
+            <li data-action="collapsed" class="select-option">Select Collapsed</li>
+          </ul>
+        </div>
+        <div class="filter-dropdown">
+          <button id="filterDropdownBtn" class="btn btn-sm filter-dropdown-btn">
+            <span id="filterDropdownText">All repos</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <ul id="filterDropdownMenu" class="filter-dropdown-menu hidden">
+            <li data-mode="all" class="filter-option active">All repos</li>
+            <li data-mode="multi" class="filter-option">Multi-notif repos</li>
+            <li data-mode="pre_release" class="filter-option">With pre-release</li>
+          </ul>
+        </div>
+        <button id="expandAllBtn" class="btn btn-sm">Expand All</button>
         <span id="selectedCount" class="selected-count">0 selected</span>
         <div class="toolbar-actions">
-          <button id="filterMultiBtn" class="btn btn-sm">Multi-repo</button>
-          <button id="expandAllBtn" class="btn btn-sm">Expand All</button>
+          <button id="loadMoreBtn" class="btn btn-sm hidden">Load More</button>
           <button id="fetchDetailsBtn" class="btn btn-sm" disabled>Fetch Details</button>
-          <button id="markHiddenBtn" class="btn btn-sm" disabled>Mark Collapsed as Read</button>
           <button id="markReadBtn" class="btn btn-sm" disabled>Mark as Read</button>
         </div>
       </div>

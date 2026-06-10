@@ -204,10 +204,10 @@ header h1 {
 }
 
 .setting-checkbox {
-  display: inline-flex !important;
+  display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 12px;
   cursor: pointer;
   font-size: 14px;
   color: var(--text);
@@ -249,6 +249,123 @@ header h1 {
 
 .toolbar-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ===== Filter Dropdown ===== */
+.filter-dropdown {
+  position: relative;
+}
+
+.filter-dropdown-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.filter-dropdown.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.filter-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  list-style: none;
+  padding: 4px;
+  z-index: 100;
+}
+
+.filter-option {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.filter-option:hover {
+  background: var(--bg-hover);
+}
+
+.filter-option.active {
+  color: var(--accent);
+}
+
+.filter-option.active::after {
+  content: '✓';
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.select-all-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* ===== Select Dropdown ===== */
+.select-dropdown {
+  position: relative;
+}
+
+.select-dropdown-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.select-dropdown.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.select-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  list-style: none;
+  padding: 4px;
+  z-index: 100;
+}
+
+.select-option {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.select-option:hover {
+  background: var(--bg-hover);
 }
 
 .selected-count {
@@ -304,11 +421,6 @@ header h1 {
 
 .custom-checkbox:focus-visible + .checkbox-ui {
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
-}
-
-.select-all-label {
-  font-size: 13px;
-  color: var(--text);
 }
 
 /* ===== Loading ===== */
@@ -494,6 +606,15 @@ header h1 {
 }
 
 .notif-item:hover {
+  background: var(--bg-hover);
+}
+
+.notif-item.notif-read {
+  opacity: 0.45;
+}
+
+.notif-item.notif-read:hover {
+  opacity: 0.7;
   background: var(--bg-hover);
 }
 
