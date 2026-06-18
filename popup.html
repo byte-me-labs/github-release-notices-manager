@@ -40,21 +40,29 @@
         <hr class="settings-divider" />
         <label id="notifSettingsLabel">Notification Settings</label>
         <label class="checkbox-label setting-checkbox">
+          <input type="checkbox" id="loadReadNotifsCb" class="custom-checkbox" />
+          <span class="checkbox-ui"></span>
+          <span id="loadReadNotifsLabel">Load read messages</span>
+        </label>
+
+        <label class="checkbox-label setting-checkbox">
           <input type="checkbox" id="autoFetchDetailsCb" class="custom-checkbox" />
           <span class="checkbox-ui"></span>
           <span id="autoFetchDetailsLabel">Auto-fetch release details</span>
         </label>
 
+        <div class="setting-select-row">
+          <label id="openTabModeLabel">Open tab mode</label>
+          <select id="openTabModeSelect" class="setting-select">
+            <option value="background">Open in background</option>
+            <option value="foreground">Open in foreground</option>
+          </select>
+        </div>
+
         <label class="checkbox-label setting-checkbox">
           <input type="checkbox" id="autoMarkReadCb" class="custom-checkbox" />
           <span class="checkbox-ui"></span>
           <span id="autoMarkReadLabel">Auto-mark as read on click</span>
-        </label>
-
-        <label class="checkbox-label setting-checkbox">
-          <input type="checkbox" id="loadReadNotifsCb" class="custom-checkbox" />
-          <span class="checkbox-ui"></span>
-          <span id="loadReadNotifsLabel">Load read messages</span>
         </label>
       </div>
     </div>

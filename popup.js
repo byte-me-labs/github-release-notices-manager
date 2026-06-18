@@ -53,7 +53,9 @@ const filterDropdownText = $('filterDropdownText');
 const autoFetchDetailsCb = $('autoFetchDetailsCb');
 const loadReadNotifsCb = $('loadReadNotifsCb');
 const loadMoreBtn = $('loadMoreBtn');
+const openTabModeSelect = $('openTabModeSelect');
 let autoMarkRead = false;
+let openTabMode = 'background';
 let loadReadNotifs = false;
 let loadMorePage = 1;           // current page for "load more"
 let autoFetchDetails = false;
@@ -71,7 +73,7 @@ function escapeHtml(str) {
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', async () => {
-  const result = await chrome.storage.local.get(['github_token', 'auto_mark_read', 'auto_fetch_details', 'load_read_notifs']);
+  const result = await chrome.storage.local.get(['github_token', 'auto_mark_read', 'auto_fetch_details', 'load_read_notifs', 'open_tab_mode']);
   if (result.github_token) {
     token = result.github_token;
     tokenInput.value = token;
@@ -97,6 +99,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadReadNotifs = result.load_read_notifs === true;
   loadReadNotifsCb.checked = loadReadNotifs;
   loadMoreBtn.classList.toggle('hidden', !loadReadNotifs);
+
+  openTabMode = result.open_tab_mode || 'background';
+  openTabModeSelect.value = openTabMode;
 
   // Initialize all i18n text
   applyI18nText();
@@ -165,6 +170,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Open tab mode
+  openTabModeSelect.addEventListener('change', async () => {
+    openTabMode = openTabModeSelect.value;
+    await chrome.storage.local.set({ open_tab_mode: openTabMode });
+  });
+
   // Load more button
   loadMoreBtn.addEventListener('click', onLoadMore);
 });
@@ -210,6 +221,9 @@ function applyI18nText() {
   $('autoMarkReadLabel').textContent = t('autoMarkRead');
   $('autoFetchDetailsLabel').textContent = t('autoFetchDetails');
   $('loadReadNotifsLabel').textContent = t('loadReadNotifs');
+  $('openTabModeLabel').textContent = t('openTabMode');
+  openTabModeSelect.options[0].text = t('openBackground');
+  openTabModeSelect.options[1].text = t('openForeground');
   loadMoreBtn.textContent = t('loadMore');
   selectDropdownText.textContent = t('selectAction');
   updateSelectDropdownUI();
@@ -821,12 +835,27 @@ function selectPreRelease() {
 }
 
 function selectCollapsed() {
-  // Select items in collapsed (hidden) sections of displayed groups
-  const hiddenItems = groupedList.querySelectorAll('.group-hidden-items.hidden .notif-item');
+  // Expand all collapsed sections first, so the user sees what's selected
+  const hiddenSections = groupedList.querySelectorAll('.group-hidden-items.hidden');
   selectedSet = new Set();
-  for (const el of hiddenItems) {
-    selectedSet.add(el.dataset.threadId);
+
+  for (const section of hiddenSections) {
+    // Expand this section
+    section.classList.remove('hidden');
+    const btn = section.parentElement.querySelector('.group-expand-btn');
+    if (btn) {
+      btn.textContent = t('collapse');
+    }
+    const group = section.closest('.group');
+    if (group && group.dataset.repo) {
+      expandedGroups.add(group.dataset.repo);
+    }
+    // Select all items in this formerly-collapsed section
+    for (const el of section.querySelectorAll('.notif-item')) {
+      selectedSet.add(el.dataset.threadId);
+    }
   }
+
   syncCheckboxesFromSelection();
   updateToolbarState();
 }
@@ -911,32 +940,23 @@ async function onNotifLinkClick(e) {
   const threadId = item ? item.dataset.threadId : null;
   const cached = releaseUrlCache.get(link.dataset.subjectUrl);
 
-  // Cache hit → mark as read first, then open
-  if (cached) {
-    if (cached.html_url) {
-      e.preventDefault();
-      if (autoMarkRead && threadId) await markAutoRead(threadId);
-      window.open(cached.html_url, '_blank');
-    }
-    return;
-  }
-
-  // Cache miss → lazy fetch, mark as read, then open
   e.preventDefault();
-  const titleEl = link.querySelector('.notif-title');
-  const origText = titleEl.textContent;
-  titleEl.textContent = t('fetching');
 
-  try {
-    const info = await fetchReleaseHtmlUrl(link.dataset.subjectUrl);
-    releaseUrlCache.set(link.dataset.subjectUrl, info);
-    await persistReleaseUrlCache();
-    titleEl.textContent = origText;
-    if (autoMarkRead && threadId) await markAutoRead(threadId);
-    window.open(info.html_url, '_blank');
-  } catch {
-    titleEl.textContent = origText;
-    window.open(link.href, '_blank');
+  // Open page immediately without waiting for API calls
+  const openUrl = (cached && cached.html_url) ? cached.html_url : link.href;
+  chrome.tabs.create({ url: openUrl, active: openTabMode === 'foreground' });
+
+  // Background: mark as read
+  if (autoMarkRead && threadId) markAutoRead(threadId);
+
+  // Background: lazy fetch and cache details if missing
+  if (!cached) {
+    fetchReleaseHtmlUrl(link.dataset.subjectUrl)
+      .then(info => {
+        releaseUrlCache.set(link.dataset.subjectUrl, info);
+        return persistReleaseUrlCache();
+      })
+      .catch(() => {});
   }
 }
 
@@ -1066,12 +1086,7 @@ async function onGroupMarkRead(e) {
   btn.textContent = t('marking');
 
   try {
-    let marked = 0;
-    for (const n of notifs) {
-      await markThreadRead(n.id);
-      marked++;
-      updateStatus(t('markingProgress', String(marked), String(notifs.length)));
-    }
+    await batchMarkThreadRead(notifs.map(n => n.id));
     await sleep(1000);
     await fetchAllNotifications();
     updateStatus(t('markedRepo', repo));
@@ -1090,33 +1105,36 @@ async function onMarkRead() {
   markReadBtn.textContent = t('marking');
 
   try {
-    const selectedByRepo = new Map();
+    const ids = [];
     for (const n of allNotifications) {
       if (selectedSet.has(String(n.id))) {
-        const repo = n.repository.full_name;
-        if (!selectedByRepo.has(repo)) selectedByRepo.set(repo, []);
-        selectedByRepo.get(repo).push(n);
+        ids.push(n.id);
       }
     }
 
-    let marked = 0;
-    const total = selectedSet.size;
-
-    for (const [, notifs] of selectedByRepo) {
-      for (const n of notifs) {
-        await markThreadRead(n.id);
-        marked++;
-      }
-      updateStatus(t('markingProgress', String(marked), String(total)));
-    }
-
+    await batchMarkThreadRead(ids);
     await sleep(2000);
     await fetchAllNotifications();
-    updateStatus(t('markedRead', String(marked)));
+    updateStatus(t('markedRead', String(ids.length)));
   } catch (err) {
     showError(t('markFailed', err.message));
     markReadBtn.disabled = false;
     markReadBtn.textContent = t('markRead');
+  }
+}
+
+async function batchMarkThreadRead(ids) {
+  let marked = 0;
+  const total = ids.length;
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    const batch = ids.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(id => markThreadRead(id))
+    );
+    results.forEach(r => {
+      if (r.status === 'fulfilled') marked++;
+    });
+    updateStatus(t('markingProgress', String(marked), String(total)));
   }
 }
 

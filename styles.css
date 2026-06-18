@@ -203,6 +203,35 @@ header h1 {
   margin-top: 8px;
 }
 
+.setting-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.setting-select-row label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.setting-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.setting-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .setting-checkbox {
   display: flex;
   align-items: center;
