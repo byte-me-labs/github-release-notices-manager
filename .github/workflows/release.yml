@@ -1,0 +1,64 @@
+name: Build and Release Chrome Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Sync version from tag
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.json.tmp
+          mv manifest.json.tmp manifest.json
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Updated manifest.json version to ${VERSION}"
+
+      - name: Prepare extension directory
+        run: |
+          mkdir -p dist/extension
+          cp -r \
+            manifest.json \
+            background.js \
+            popup.html \
+            popup.js \
+            styles.css \
+            icon-16.png \
+            icon-32.png \
+            icon-48.png \
+            icon-128.png \
+            icon.svg \
+            _locales/ \
+            dist/extension/
+
+      - name: Pack extension to ZIP
+        id: pack
+        uses: cardinalby/webext-buildtools-pack-extension-dir-action@v1
+        with:
+          extensionDir: dist/extension
+          zipFilePath: github-release-notices-manager-v${{ steps.version.outputs.version }}.zip
+
+      - name: Sign and generate CRX
+        uses: cardinalby/webext-buildtools-chrome-crx-action@v2
+        with:
+          zipFilePath: ${{ steps.pack.outputs.zipFilePath }}
+          crxFilePath: github-release-notices-manager-v${{ steps.version.outputs.version }}.crx
+          privateKey: ${{ secrets.EXTENSION_PEM_KEY }}
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            github-release-notices-manager-v${{ steps.version.outputs.version }}.crx
+          generate_release_notes: true

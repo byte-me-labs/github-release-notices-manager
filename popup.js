@@ -130,6 +130,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadMorePage = 1;
     if (token) fetchAllNotifications();
   });
+  $('openGitHubNotifsBtn').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://github.com/notifications' });
+  });
 
   // Selection controls
   selectAllCb.addEventListener('change', onSelectAllChange);
